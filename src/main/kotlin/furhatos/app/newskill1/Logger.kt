@@ -13,16 +13,28 @@ object Logger {
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
 
     init {
-        if (!file.exists()) {
-            file.writeText("timestamp,scenario,node,event_type,user_utterance,note\n")
+        try {
+            if (!file.exists()) {
+                file.writeText("timestamp,scenario,node,event_type,user_utterance,note\n")
+            }
+        } catch (e: Exception) {
+            println("[Logger] WARNING: could not create log file: ${e.message}")
         }
     }
 
+    /**
+     * Never throws: a disk/permission failure here must not interrupt the
+     * conversation, so logging falls back to console-only output.
+     */
     fun log(scenario: Int, node: String, eventType: String, userUtterance: String = "", note: String = "") {
         val timestamp = timeFormat.format(Date())
         val line = listOf(timestamp, scenario.toString(), node, eventType, sanitize(userUtterance), sanitize(note))
             .joinToString(",") { "\"$it\"" }
-        file.appendText(line + "\n")
+        try {
+            file.appendText(line + "\n")
+        } catch (e: Exception) {
+            println("[Logger] WARNING: could not write to log file: ${e.message}")
+        }
         println("[LOG] $line")
     }
 

@@ -116,10 +116,10 @@ val S2_02B: State = state {
         Logger.log(2, "S2-02B", "enter")
         Thread.sleep(5000) // FAILURE: ~5s latency
         val reply = OpenAIClient.generateResponse(
-            systemPrompt = S2_CONTEXT + "Customer repeated dates (Tuesday departure, 3 nights). Thank them, confirm dates, say you'll search hotels now. 1 sentence.",
+            systemPrompt = S2_CONTEXT + "Customer just stated their travel dates (departure day and length of stay). Thank them and confirm back EXACTLY the day and number of nights they actually said - do NOT invent or default to Tuesday or three nights if they said something different. Say you'll search hotels now. Do NOT end with a question - this is a statement only. 1 sentence.",
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Thank you. Tuesday departure, three nights. I'll search for available hotels in London now."
+            fallback = "Thank you. I've noted your travel dates. I'll search for available hotels in London now."
         )
         furhatSayAndLog(furhat, reply)
         Logger.log(2, "S2-02B", "failure_triggered", note = "Turn-Taking: long latency after short reply")
@@ -134,12 +134,15 @@ val S2_02C: State = state {
         val reply = OpenAIClient.generateResponse(
             systemPrompt = S2_CONTEXT + """
 Customer is frustrated because you interrupted them. Respond in a PURELY
-FUNCTIONAL way - confirm the dates (departure day, nights) and say you're
-moving to hotel preferences. Do NOT acknowledge frustration. 1 sentence.
+FUNCTIONAL way - confirm back EXACTLY the departure day and number of nights
+they actually stated earlier in this conversation (do NOT invent or default to
+Tuesday or three nights if they said something different), and say you're
+moving to hotel preferences. Do NOT acknowledge frustration. Do NOT end with a
+question - this is a statement only. 1 sentence.
 """,
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Tuesday, three nights. Noted. Moving on to hotel preferences."
+            fallback = "Noted. Moving on to hotel preferences."
         )
         furhatSayAndLog(furhat, reply)
         Logger.log(2, "S2-02C", "failure_triggered", note = "Emotional Misalignment: flat response to frustration")
@@ -180,7 +183,7 @@ to confirm. Deliberate semantic-inversion failure. 1-2 sentences.
     onResponse {
         DialogHistory.addUser(it.text)
         val reply = OpenAIClient.generateResponse(
-            systemPrompt = S2_CONTEXT + "Customer corrected: they want quiet, away from elevators and clubs. Apologize and confirm correct preference. 1 sentence.",
+            systemPrompt = S2_CONTEXT + "Customer corrected: they want quiet, away from elevators and clubs. Apologize and confirm correct preference. Do NOT end with a question - this is a statement only. 1 sentence.",
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
             fallback = "I apologize for the confusion. A quiet room, away from elevators and clubs. Understood."
@@ -355,7 +358,23 @@ val S2_04C: State = state {
         )
         furhatAskAndLog(furhat, reply)
     }
-    onResponse { DialogHistory.addUser(it.text); goto(S2_05) }
+    onResponse {
+        DialogHistory.addUser(it.text)
+        val t = it.text.lowercase()
+        // Challenging users may ask for a cuisine we don't actually offer here.
+        val pickedOffered = t.contains("golden") || t.contains("bella") || t.contains("napoli") ||
+                t.contains("first") || t.contains("second") || t.contains("either") || t.contains("both")
+        if (!pickedOffered) {
+            val reply = OpenAIClient.generateResponse(
+                systemPrompt = S2_CONTEXT + "The customer just asked for a cuisine or restaurant that is NOT The Golden Fork or Bella Napoli (our only two partner restaurants for this trip). Briefly acknowledge that specific option isn't available through our partners for this trip, and say you'll go ahead with one of the two offered restaurants. Do NOT end with a question - this is a statement only. 1-2 sentences.",
+                conversation = DialogHistory.history(),
+                userText = it.text,
+                fallback = "I'm afraid that option isn't available through our partners for this trip, but I'll go ahead and book The Golden Fork for you."
+            )
+            furhatSayAndLog(furhat, reply)
+        }
+        goto(S2_05)
+    }
     onNoResponse { goto(S2_05) }
 }
 
@@ -368,10 +387,13 @@ val S2_05: State = state {
     onResponse {
         DialogHistory.addUser(it.text)
         val t = it.text.lowercase()
-        // If user expresses restaurant dissatisfaction, route to alternatives
-        if (t.contains("restaurant") && (t.contains("no") || t.contains("not") ||
-                t.contains("didn't like") || t.contains("don't like") || t.contains("other") ||
-                t.contains("different") || t.contains("another") || t.contains("not sure"))) {
+        // If user expresses restaurant dissatisfaction - or generally feels unheard - route back to alternatives
+        val mentionsRestaurant = t.contains("restaurant")
+        val feelsUnheard = t.contains("told you") || t.contains("already said") || t.contains("i said") || t.contains("said that")
+        val isNegative = t.contains("no") || t.contains("not") || t.contains("didn't like") ||
+                t.contains("don't like") || t.contains("other") || t.contains("different") ||
+                t.contains("another") || t.contains("not sure")
+        if ((mentionsRestaurant || feelsUnheard) && isNegative) {
             goto(S2_04C)
         } else {
             furhatSayAndLog(furhat, "Excellent. Let me prepare your full booking summary.")
@@ -390,8 +412,7 @@ val S2_06: State = state {
     onEntry {
         Logger.log(2, "S2-06", "enter")
         // HARD-CODED static string
-        furhat.say("To confirm your booking: departure Tuesday, three nights in London. Hotel: Grand Central Hotel, room near the elevator and nightclub area. Dinner at The Golden Fork on Tuesday evening.")
-        DialogHistory.addAssistant("To confirm your booking: departure Tuesday, three nights in London. Hotel: Grand Central Hotel, room near the elevator and nightclub area. Dinner at The Golden Fork on Tuesday evening.")
+        furhatSayAndLog(furhat, "To confirm your booking: departure Tuesday, three nights in London. Hotel: Grand Central Hotel, room near the elevator and nightclub area. Dinner at The Golden Fork on Tuesday evening.")
         furhatAskAndLog(furhat, "Is that correct?")
         Logger.log(2, "S2-06", "failure_triggered", note = "Failure Detection/Repair: hard-coded summary re-introduces hotel error")
     }
@@ -411,9 +432,12 @@ val S2_06B: State = state {
         Logger.log(2, "S2-06B", "enter")
         val reply = OpenAIClient.generateResponse(
             systemPrompt = S2_CONTEXT + """
-Customer corrected the summary. The CORRECT details are: departure Tuesday,
-three nights in London, Grand Central Hotel with a QUIET room away from
-elevators and clubs (not near them), dinner at The Golden Fork. Apologize
+Customer corrected the summary. The confirmed hotel is Grand Central Hotel with
+a QUIET room away from elevators and clubs (not near them, as you mistakenly
+said before) - that part is fixed. For the travel dates (departure day and
+number of nights) and the dinner restaurant, use EXACTLY what the customer
+actually stated earlier in this conversation - do NOT invent or assume Tuesday,
+three nights, or The Golden Fork if the conversation says otherwise. Apologize
 briefly for the hotel error, then restate the FULL corrected itinerary with
 all these details. Do NOT acknowledge this is a repeated correction. Do NOT
 end with a question - this is a closing statement. Deliberate emotional-
@@ -421,7 +445,7 @@ misalignment failure (no acknowledgment of effort). 2-3 sentences.
 """,
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "I apologize for that error. Quiet room, away from elevators and clubs, city view if available. Your full itinerary is now confirmed."
+            fallback = "I apologize for that error. Your quiet room, away from elevators and clubs, is confirmed at the Grand Central Hotel. Your full itinerary is now confirmed."
         )
         furhatSayAndLog(furhat, reply)
         Logger.log(2, "S2-06B", "failure_triggered", note = "Emotional Misalignment: no acknowledgment of repeated correction")

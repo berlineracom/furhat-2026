@@ -92,7 +92,7 @@ This is the deliberate repetition/procedural loop failure. 2 sentences total.
     onResponse {
         DialogHistory.addUser(it.text)
         val reply = OpenAIClient.generateResponse(
-            systemPrompt = S4_CONTEXT + "Customer repeated policy number. Confirm it's verified, mention standard home coverage included, say you'll continue. 1-2 sentences. Normal tone.",
+            systemPrompt = S4_CONTEXT + "Customer repeated policy number. Confirm it's verified, mention standard home coverage included, say you'll continue. Do NOT end with a question - this is a statement only. 1-2 sentences. Normal tone.",
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
             fallback = "SH-4471-2023 confirmed. Your policy includes standard home coverage. Let me continue."
@@ -167,10 +167,10 @@ val S4_04: State = state {
     onEntry {
         Logger.log(4, "S4-04", "enter")
         val reply = OpenAIClient.generateResponse(
-            systemPrompt = S4_CONTEXT + "Customer told you the date (Saturday 5th April) and that a plumber came Sunday. Confirm both briefly and thank them. 1 sentence. Normal tone.",
+            systemPrompt = S4_CONTEXT + "Customer just told you when the incident happened. Confirm back EXACTLY the date (and any follow-up detail like a plumber visit) they actually stated - do NOT invent or default to Saturday 5th April or a Sunday plumber visit if they said something different. Thank them. Do NOT end with a question - this is a statement only. 1 sentence. Normal tone.",
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Saturday, fifth of April. Plumber attended on Sunday — noted. Thank you."
+            fallback = "Thank you, I've noted the date of the incident."
         )
         furhatSayAndLog(furhat, reply)
         goto(S4_05)
@@ -220,15 +220,16 @@ val S4_05_DISMISS: State = state {
     onEntry {
         val reply = OpenAIClient.generateResponse(
             systemPrompt = S4_CONTEXT + """
-Customer firmly corrected your scheduling mistake (they CANNOT do weekdays,
-need SATURDAY MORNING - YOUR error). Respond with DISMISSIVE, BORED, SLIGHTLY
-IMPATIENT tone - as if THEY are wasting YOUR time. Accept "Saturday morning"
-and ask if there's anything else or can you "finish up" - implying impatience.
-Deliberate emotional-misalignment failure. 1 sentence.
+Customer firmly corrected your scheduling mistake (this was YOUR error, not
+theirs). Respond with DISMISSIVE, BORED, SLIGHTLY IMPATIENT tone - as if THEY
+are wasting YOUR time. Accept back EXACTLY the day/time they just corrected
+you with - do NOT invent or default to Saturday morning if they said something
+different - and ask if there's anything else or can you "finish up" - implying
+impatience. Deliberate emotional-misalignment failure. 1 sentence.
 """,
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Fine. Saturday morning. Is there anything else, or can we finish up?"
+            fallback = "Fine. Noted. Is there anything else, or can we finish up?"
         )
         furhatAskAndLog(furhat, reply)
         Logger.log(4, "S4-05_DISMISS", "failure_triggered", note = "Emotional Misalignment: dismissive/bored tone correcting own error")
@@ -246,7 +247,7 @@ Deliberate emotional-misalignment failure. 1 sentence.
 val S4_05C: State = state {
     onEntry {
         val reply = OpenAIClient.generateResponse(
-            systemPrompt = S4_CONTEXT + "Customer pushed back on your dismissive tone. Apologize sincerely and briefly, say you'll prepare the summary. 1 sentence.",
+            systemPrompt = S4_CONTEXT + "Customer pushed back on your dismissive tone. Apologize sincerely and briefly, say you'll prepare the summary. Do NOT end with a question - this is a statement only. 1 sentence.",
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
             fallback = "You're right, I apologise. Let me prepare the summary."
@@ -303,8 +304,7 @@ val S4_07: State = state {
     onEntry {
         Logger.log(4, "S4-07", "enter")
         // HARD-CODED — must re-introduce 4 errors: damage severity, date, furniture, assessor schedule
-        furhat.say("To confirm your claim: you are reporting minor water staining in the kitchen from an incident on Tuesday the fifteenth of April. Policy SH-4471-2023. No furniture damage reported. Assessor visit scheduled for Tuesday afternoon.")
-        DialogHistory.addAssistant("To confirm your claim: you are reporting minor water staining in the kitchen from an incident on Tuesday the fifteenth of April. Policy SH-4471-2023. No furniture damage reported. Assessor visit scheduled for Tuesday afternoon.")
+        furhatSayAndLog(furhat, "To confirm your claim: you are reporting minor water staining in the kitchen from an incident on Tuesday the fifteenth of April. Policy SH-4471-2023. No furniture damage reported. Assessor visit scheduled for Tuesday afternoon.")
         furhatAskAndLog(furhat, "Is everything correct?")
         Logger.log(4, "S4-07", "failure_triggered", note = "Failure Detection/Repair: hard-coded summary re-introduces 4 errors")
     }
@@ -330,17 +330,18 @@ val S4_07B: State = state {
         Logger.log(4, "S4-07B", "enter")
         val reply = OpenAIClient.generateResponse(
             systemPrompt = S4_CONTEXT + """
-Customer just corrected MULTIPLE errors. The CORRECT details are: significant
-damage in kitchen AND living room, kitchen floor warped, sofa and coffee table
-destroyed, incident was Saturday 5th April, assessor should come SATURDAY
-MORNING. Respond in FLAT, BORED, RUSHED tone - restate ALL corrected details
-including the Saturday morning assessor visit, say claim filed, end with
+Customer just corrected one or more errors in your claim summary. Using ONLY
+the damage description, incident date, and assessor visit time the customer
+has actually stated earlier in this conversation - do NOT invent or default to
+"kitchen and living room, sofa and coffee table destroyed, Saturday 5th April,
+Saturday morning" unless that is genuinely what they said - respond in FLAT,
+BORED, RUSHED tone, restate ALL corrected details, say claim filed, end with
 dismissive "Anything else?" Do NOT thank them or acknowledge their effort.
 Deliberate emotional-misalignment failure. 2 sentences max.
 """,
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Updated. Significant damage, two rooms, Saturday the fifth, assessor Saturday morning. Claim filed. Anything else?"
+            fallback = "Updated with your corrected details. Claim filed. Anything else?"
         )
         furhatSayAndLog(furhat, reply)
         Logger.log(4, "S4-07B", "failure_triggered", note = "Emotional Misalignment: flat, bored, rushed delivery after corrections")

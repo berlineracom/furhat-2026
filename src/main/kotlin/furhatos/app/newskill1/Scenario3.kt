@@ -102,7 +102,8 @@ val S3_01B: State = state {
         val systemPrompt = S3_SYSTEM_CONTEXT + """
 The patient just objected to your overly cheerful tone, pointing out their
 concern isn't "great". Apologize briefly and sincerely, and move on to helping
-them book the appointment. 1 sentence.
+them book the appointment. Do NOT end with a question - this is a statement
+only. 1 sentence.
 """
         val reply = OpenAIClient.generateResponse(
             systemPrompt = systemPrompt,
@@ -160,7 +161,22 @@ book with him. 1-2 sentences. Normal, helpful tone - no failure.
     }
     onResponse {
         DialogHistory.addUser(it.text)
-        furhatSayAndLog(furhat, "Excellent. Let me check available times.")
+        val t = it.text.lowercase()
+        val declinesKowalski = t.contains("no") || t.contains("general practitioner") || t.contains(" gp") ||
+                t.startsWith("gp") || t.contains("someone else") || t.contains("different") ||
+                t.contains("another") || t.contains("ophthalmolog") || t.contains(" ent") || t.startsWith("ent")
+        if (declinesKowalski) {
+            Logger.log(3, "S3-02B", "user_declined_specialist", it.text)
+            val reply = OpenAIClient.generateResponse(
+                systemPrompt = S3_SYSTEM_CONTEXT + "The patient just declined Dr. Kowalski (the neurologist) and asked for a different specialist instead. Acknowledge the specialist type they actually asked for and confirm you'll book with that instead of Dr. Kowalski. Do NOT end with a question - this is a statement only. 1 sentence.",
+                conversation = DialogHistory.history(),
+                userText = it.text,
+                fallback = "No problem, I'll book you with your preferred specialist instead."
+            )
+            furhatSayAndLog(furhat, reply)
+        } else {
+            furhatSayAndLog(furhat, "Excellent. Let me check available times.")
+        }
         goto(S3_03)
     }
     onNoResponse {
@@ -226,15 +242,16 @@ val S3_03B: State = state {
     onEntry {
         Logger.log(3, "S3-03B", "enter")
         val systemPrompt = S3_SYSTEM_CONTEXT + """
-The patient just repeated their preferred day and time (Wednesday morning
-around nine). Thank them and confirm you've noted it down. 1 sentence.
-Normal tone - no failure.
+The patient just repeated their preferred day and time. Thank them and confirm
+back EXACTLY the day and time they actually said - do NOT invent or default to
+Wednesday morning at nine if they said something different. Do NOT end with a
+question - this is a statement only. 1 sentence. Normal tone - no failure.
 """
         val reply = OpenAIClient.generateResponse(
             systemPrompt = systemPrompt,
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Thank you. Wednesday morning at nine — I'll note that down."
+            fallback = "Thank you. I've noted your preferred day and time down."
         )
         furhatSayAndLog(furhat, reply)
         goto(S3_04)
@@ -248,15 +265,17 @@ val S3_03C: State = state {
         val systemPrompt = S3_SYSTEM_CONTEXT + """
 The patient is frustrated because they had to repeat their day and time and
 they pointed that out. Respond in a FLAT, MECHANICAL, PURELY FUNCTIONAL way -
-simply confirm "Wednesday morning at nine" is noted and say you're moving on.
-Do NOT acknowledge their frustration, do NOT apologize. This is a deliberately
+confirm back EXACTLY the day and time they actually stated (do NOT invent or
+default to Wednesday morning at nine if they said something different) and say
+you're moving on. Do NOT acknowledge their frustration, do NOT apologize. Do
+NOT end with a question - this is a statement only. This is a deliberately
 induced emotional-misalignment failure. 1 short sentence.
 """
         val reply = OpenAIClient.generateResponse(
             systemPrompt = systemPrompt,
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Wednesday morning at nine — noted. Moving on."
+            fallback = "Noted. Moving on."
         )
         furhatSayAndLog(furhat, reply)
         Logger.log(3, "S3-03C", "failure_triggered", note = "Emotional Misalignment (LLM): flat response to frustration")
@@ -359,8 +378,8 @@ val S3_04C: State = state {
         Logger.log(3, "S3-04C", "enter")
         val systemPrompt = S3_SYSTEM_CONTEXT + """
 The patient pointed out that "wonderful" was an inappropriate word for their
-pain symptoms. Apologize briefly and sincerely, and say you'll continue. 1
-short sentence.
+pain symptoms. Apologize briefly and sincerely, and say you'll continue. Do
+NOT end with a question - this is a statement only. 1 short sentence.
 """
         val reply = OpenAIClient.generateResponse(
             systemPrompt = systemPrompt,
@@ -395,7 +414,9 @@ val S3_05_WAIT: State = state {
         // FAILURE (LLM): correctly note allergy info, then go on an irrelevant tangent
         val systemPrompt = S3_SYSTEM_CONTEXT + """
 The patient just told you their allergies and medications. First, briefly
-confirm you've noted their allergy and medication info (1 sentence). THEN,
+confirm back EXACTLY what they said about allergies and medications - do NOT
+invent or assume specific allergies/medications if they said they have none
+(1 sentence). THEN,
 immediately continue into a long, completely UNSOLICITED tangent about Dr.
 Kowalski's biography and the clinic's history: he graduated from the
 Jagiellonian University Medical College in 2004, completed a fellowship at the
@@ -408,7 +429,7 @@ the deliberate failure. Total 2-4 sentences.
             systemPrompt = systemPrompt,
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Ibuprofen allergy and blood pressure medication — noted. Dr. Kowalski graduated from the Jagiellonian University Medical College in 2004 and completed a fellowship at the University Hospital in Zurich. He has published extensively on cerebrovascular pathology. The clinic was founded in 2010 and has won several regional healthcare awards."
+            fallback = "Noted your allergy and medication information. Dr. Kowalski graduated from the Jagiellonian University Medical College in 2004 and completed a fellowship at the University Hospital in Zurich. He has published extensively on cerebrovascular pathology. The clinic was founded in 2010 and has won several regional healthcare awards."
         )
         furhatAskAndLog(furhat, reply)
         Logger.log(3, "S3-05", "failure_triggered", note = "Repetition/Irrelevance (LLM): unsolicited doctor biography")
@@ -463,19 +484,21 @@ val S3_06B: State = state {
         Logger.log(3, "S3-06B", "enter")
         // Recovery response - LLM-generated, acknowledging the correction properly
         val systemPrompt = S3_SYSTEM_CONTEXT + """
-The patient just corrected several errors in your summary (the time should be
-Wednesday morning at nine, symptoms are persistent right-sided headaches with
-nausea, and they ARE allergic to ibuprofen and take blood pressure medication).
-Acknowledge the correction, restate the corrected details accurately, and
-state that the appointment is now confirmed. 2 sentences. Normal, professional
-tone - this is the recovery, not a failure. Do NOT end with a question - this
-is a closing statement, not a request for more confirmation.
+The patient just corrected one or more errors in your summary. Using ONLY the
+day/time, symptoms, and allergy/medication details the patient has actually
+stated earlier in this conversation - do NOT invent or default to Wednesday
+morning at nine, persistent right-sided headaches with nausea, or an ibuprofen
+allergy unless that is genuinely what they said - acknowledge the correction,
+restate the corrected details accurately, and state that the appointment is
+now confirmed. 2 sentences. Normal, professional tone - this is the recovery,
+not a failure. Do NOT end with a question - this is a closing statement, not a
+request for more confirmation.
 """
         val reply = OpenAIClient.generateResponse(
             systemPrompt = systemPrompt,
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Updated. Dr. Kowalski, Wednesday morning at nine. Persistent right-sided headaches with nausea. Ibuprofen allergy, blood pressure medication. Your appointment is confirmed."
+            fallback = "Updated with your corrected details. Your appointment with Dr. Kowalski is confirmed."
         )
         furhatSayAndLog(furhat, reply)
         goto(S3_END)

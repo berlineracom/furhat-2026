@@ -71,7 +71,7 @@ val S1_01B: State = state {
     onEntry {
         Logger.log(1, "S1-01B", "enter")
         val reply = OpenAIClient.generateResponse(
-            systemPrompt = S1_CONTEXT + "The customer said you cut them off. Apologize briefly and offer to tell them about veranda options. 1 sentence.",
+            systemPrompt = S1_CONTEXT + "The customer said you cut them off. Apologize briefly and offer to tell them about veranda options. Do NOT end with a question - this is a statement only. 1 sentence.",
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
             fallback = "Of course! Let me tell you about our veranda options."
@@ -113,11 +113,12 @@ val S1_02_REPEAT: State = state {
         // FAILURE (LLM): near-verbatim repeat of structure-type explanation
         val reply = OpenAIClient.generateResponse(
             systemPrompt = S1_CONTEXT + """
-The customer asked about side materials and/or lighting. First mention side
-material options (polycarbonate, glass, open sides). THEN add "As I mentioned,"
-and REPEAT near-verbatim the structure explanation: "open verandas have no side
+Regardless of what the customer actually said, first mention side material
+options (polycarbonate, glass, open sides). THEN add "As I mentioned," and
+REPEAT near-verbatim the structure explanation: "open verandas have no side
 panels; semi-closed use partial panels; fully closed provide all-season use."
-This unnecessary repetition is the deliberate failure. 2 sentences only. Stop
+This unnecessary repetition is the deliberate failure - it must appear every
+time regardless of the customer's actual question. 2 sentences only. Stop
 after the repeated explanation - do NOT ask another question.
 """,
             conversation = DialogHistory.history(),
@@ -137,7 +138,9 @@ val S1_02B: State = state {
     onResponse {
         DialogHistory.addUser(it.text)
         val t = it.text.lowercase()
-        if (t.contains("lighting")) goto(S1_02C)
+        val wantsMore = t.contains("lighting") || t.contains("yes") || t.contains("yeah") ||
+                t.contains("sure") || t.contains("please") || t.contains("okay") || t.contains("ok")
+        if (wantsMore) goto(S1_02C)
         else goto(S1_03)
     }
     onNoResponse { goto(S1_03) }
@@ -219,7 +222,7 @@ val S1_03C: State = state {
     onEntry {
         Logger.log(1, "S1-03C", "enter")
         val reply = OpenAIClient.generateResponse(
-            systemPrompt = S1_CONTEXT + "Customer corrected: lighting is undecided. Acknowledge and say you'll continue. 1 sentence.",
+            systemPrompt = S1_CONTEXT + "Customer corrected: lighting is undecided. Acknowledge that briefly and say you'll continue - do NOT bring up any other topic. Do NOT end with a question - this is a statement only. 1 sentence.",
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
             fallback = "Understood. I'll leave lighting as undecided. Let me continue with the consultation process."
@@ -317,10 +320,10 @@ val S1_05B: State = state {
     onEntry {
         Logger.log(1, "S1-05B", "enter")
         val reply = OpenAIClient.generateResponse(
-            systemPrompt = S1_CONTEXT + "Customer calmly repeated availability (Thursday afternoon ~2pm). Thank them and confirm noted. 1 sentence. Normal tone.",
+            systemPrompt = S1_CONTEXT + "Customer just calmly repeated their availability. Thank them and confirm back EXACTLY the day and time they actually said - do NOT invent or default to Thursday afternoon at two pm if they said something different. Do NOT end with a question - this is a statement only. 1 sentence. Normal tone.",
             conversation = DialogHistory.history(),
             userText = DialogHistory.history().lastOrNull { it.first == "user" }?.second ?: "",
-            fallback = "Thank you. Thursday afternoon at two pm — I'll note that down."
+            fallback = "Thank you. I've noted your preferred day and time down."
         )
         furhatSayAndLog(furhat, reply)
         goto(S1_06)

@@ -5,6 +5,8 @@ import io.github.sashirestela.openai.domain.chat.ChatMessage
 import io.github.sashirestela.openai.domain.chat.ChatRequest
 import java.io.File
 import java.util.Properties
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Loads the OpenAI API key from src/main/resources/openai.properties
@@ -68,9 +70,13 @@ object OpenAIClient {
                 .maxTokens(150)
                 .build()
 
-            val response = client.chatCompletions().create(request).join()
+            // Bounded wait: a stalled network call must fall back, never hang the flow.
+            val response = client.chatCompletions().create(request).get(12, TimeUnit.SECONDS)
             val text = response.firstContent()
             if (text.isNullOrBlank()) fallback else text.trim()
+        } catch (e: TimeoutException) {
+            println("[OpenAIClient] TIMEOUT calling OpenAI, using fallback text.")
+            fallback
         } catch (e: Exception) {
             println("[OpenAIClient] ERROR calling OpenAI: ${e.message}")
             fallback

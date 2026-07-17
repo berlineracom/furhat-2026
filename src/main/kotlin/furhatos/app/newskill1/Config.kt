@@ -7,4 +7,4 @@ package furhatos.app.newskill1
  * 3 = Doctor's Appointment Booking
  * 4 = Insurance Claim Filing
  */
-const val ACTIVE_SCENARIO = 2
+const val ACTIVE_SCENARIO = 1
